@@ -22,7 +22,7 @@ def read_relative_file(path):
 
 codes = {
     'fastapi': (read_relative_file('../../examples/example_fastapi_1.py'), 'app', Encoding.plain),
-    'fastapi-pyz': (read_relative_file('../../examples/example_fastapi_2.pyz'),
+    'fastapi-zip': (read_relative_file('../../examples/example_fastapi_2.zip'),
                     'example_fastapi_2:app', Encoding.zip),
 }
 

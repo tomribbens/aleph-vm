@@ -12,9 +12,9 @@ def read_root():
 
 @app.get("/run/{item_id}")
 def read_item(item_id: str, q: Optional[str] = None):
-    return {"pyz item_id": item_id, "q": q}
+    return {"zip item_id": item_id, "q": q}
 
 
 @app.post("/run/{item_id}")
 def read_item_post(item_id: str, q: Optional[str] = None):
-    return {"pyz item_id_post": item_id, "q": q}
+    return {"zip item_id_post": item_id, "q": q}

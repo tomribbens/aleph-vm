@@ -41,7 +41,12 @@ jobs:
         run: |
           sudo mkdir /srv/jailer
 
+      - name: Create zip code example
+        run: |
+          cd ./examples
+          zip -r example_fastapi_2.zip example_fastapi_2
+
       - name: Run the VM Supervisor
         run: |
           sudo pip install pytest pytest-asyncio
-          sudo PYTHONPATH=$(pwd) pytest -vv -s
+          sudo PYTHONPATH=$(pwd) pytest -vv -s .
