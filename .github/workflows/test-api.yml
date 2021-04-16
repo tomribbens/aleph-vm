@@ -48,6 +48,6 @@ jobs:
 
       - name: Run the VM Supervisor
         run: |
-          sudo python3 vm_supervisor/tests/test_supervisor.py
+          sudo PYTHONPATH=$(pwd) python3 vm_supervisor/tests/test_supervisor.py
           sudo pip install pytest pytest-asyncio
           sudo PYTHONPATH=$(pwd) pytest -vv -s .
