@@ -30,7 +30,7 @@ jobs:
         run: |
           pwd
           find .
-          cd ./aleph-vm/runtimes/aleph-alpine-3.13-python
+          cd ./runtimes/aleph-alpine-3.13-python
           sudo bash ./create_disk_image.sh
           # Run it a second time to solve a bug
           sudo bash ./create_disk_image.sh
