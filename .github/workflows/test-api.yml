@@ -5,7 +5,7 @@ on: push
 jobs:
   build:
     runs-on: ubuntu-20.04
-    #timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
       - uses: actions/checkout@v2
@@ -48,6 +48,8 @@ jobs:
 
       - name: Run the VM Supervisor
         run: |
+          find /opt
+          find /srv
           sudo PYTHONPATH=$(pwd) python3 vm_supervisor/tests/test_supervisor.py
           sudo pip install pytest pytest-asyncio
           sudo PYTHONPATH=$(pwd) pytest -vv -s .
