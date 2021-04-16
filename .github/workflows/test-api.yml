@@ -28,6 +28,8 @@ jobs:
 
       - name: Build the runtime rootfs
         run: |
+          pwd
+          find .
           cd ./aleph-vm/runtimes/aleph-alpine-3.13-python
           sudo bash ./create_disk_image.sh
           # Run it a second time to solve a bug
