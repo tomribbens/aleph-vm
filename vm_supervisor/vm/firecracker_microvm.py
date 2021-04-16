@@ -13,8 +13,8 @@ async def start_new_vm(vm_id: int,
                        rootfs_path: str) -> MicroVM:
     logger.info('Created VM= %s', vm_id)
 
-    assert isfile(kernel_image_path)
-    assert isfile(rootfs_path)
+    assert isfile(kernel_image_path), kernel_image_path
+    assert isfile(rootfs_path), rootfs_path
 
     await setfacl()
     vm = MicroVM(vm_id,

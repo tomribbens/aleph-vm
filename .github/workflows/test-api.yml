@@ -46,10 +46,19 @@ jobs:
           cd ./examples
           zip -r example_fastapi_2.zip example_fastapi_2
 
+      - name: Download the kernel
+        run: |
+          curl -fsSL -o ./kernels/vmlinux.bin "https://s3.amazonaws.com/spec.ccfc.min/img/quickstart_guide/x86_64/kernels/vmlinux.bin"
+
+      - name: Check files
+        run: |
+          ls -lah /opt
+          ls -lah /srv
+          find ./runtimes
+          find ./kernels
+
       - name: Run the VM Supervisor
         run: |
-          find /opt
-          find /srv
           sudo PYTHONPATH=$(pwd) python3 vm_supervisor/tests/test_supervisor.py
           sudo pip install pytest pytest-asyncio
           sudo PYTHONPATH=$(pwd) pytest -vv -s .
