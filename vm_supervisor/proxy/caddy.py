@@ -10,6 +10,7 @@ CADDY_API_URL = "http://127.0.0.1:2019/"
 
 def caddy_new_route(host: str, upstream: str, uid: str):
     return {
+        "@id": f"subroute-{uid}",
         "handle": [
             {
                 "handler": "subroute",
@@ -17,7 +18,6 @@ def caddy_new_route(host: str, upstream: str, uid: str):
                     {
                         "handle": [
                             {
-                                "@id": f"subroute-{uid}",
                                 "handler": "reverse_proxy",
                                 "headers": {
                                     "request": {
@@ -67,5 +67,13 @@ class CaddyProxy(ProxyConfigurator):
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(10)) as session:
             async with session.put(url, json=config) as response:
+                response.raise_for_status()
+                print("OK")
+
+    async def remove_uid(self, uid: str):
+        url = CADDY_API_URL + f"/id/subroute-{uid}"
+
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(3)) as session:
+            async with session.delete(url) as response:
                 response.raise_for_status()
                 print("OK")
