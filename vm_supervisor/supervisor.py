@@ -12,6 +12,7 @@ from base64 import b32decode, b16encode
 from typing import Awaitable, Dict, Any
 
 import aiodns
+import aiohttp
 import msgpack
 from aiohttp import web, ClientResponseError, ClientConnectorError
 from aiohttp.web_exceptions import HTTPNotFound, HTTPServiceUnavailable, HTTPBadRequest, \
@@ -115,42 +116,63 @@ async def run_code(message_ref: str, path: str, request: web.Request) -> web.Res
         logger.exception(error)
         raise HTTPInternalServerError(reason="Error during runtime initialisation")
 
-    logger.debug(f"Using vm={vm.vm_id}")
-
-    scope: Dict = await build_asgi_scope(path, request)
+    for i in range(50):
+        try:
+            logger.debug(f"Trying... {i}")
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(0.1)) as session:
+                async with session.get(f"http://{vm.fvm.guest_ip}:8000") as response:
+                    response.raise_for_status()
+                    break
+        except:
+            await asyncio.sleep(0.1)
+            continue
 
     try:
-        result_raw: bytes = await vm.run_code(scope=scope)
-    except UnpackValueError as error:
-        logger.exception(error)
-        return web.Response(status=502, reason="Invalid response from VM")
-
-    try:
-        result = msgpack.loads(result_raw, raw=False)
-        # TODO: Handle other content-types
-
-        logger.debug(f"Result from VM: <<<\n\n{str(result)[:1000]}\n\n>>>")
-
-        if "traceback" in result:
-            logger.warning(result["traceback"])
-            return web.Response(
-                status=500,
-                reason="Error in VM execution",
-                body=result["traceback"],
-                content_type="text/plain",
-            )
-
-        headers = {key.decode(): value.decode()
-                   for key, value in result['headers']['headers']}
-
         return web.Response(
-            status=result['headers']['status'],
-            body=result["body"]["body"],
-            headers=headers,
+            headers={'X-Accel-Redirect': f"{vm.fvm.guest_ip}:8000"}
         )
-    except UnpackValueError as error:
-        logger.exception(error)
-        return web.Response(status=502, reason="Invalid response from VM")
+
+    # logger.debug(f"Using vm={vm.vm_id}")
+    #
+    # scope: Dict = await build_asgi_scope(path, request)
+    #
+    # try:
+    #     result_raw: bytes = await vm.run_code(scope=scope)
+    # except UnpackValueError as error:
+    #     logger.exception(error)
+    #     return web.Response(status=502, reason="Invalid response from VM")
+    #
+    # try:
+    #     result = msgpack.loads(result_raw, raw=False)
+    #     # TODO: Handle other content-types
+    #
+    #     logger.debug(f"Result from VM: <<<\n\n{str(result)[:1000]}\n\n>>>")
+    #
+    #     if "traceback" in result:
+    #         logger.warning(result["traceback"])
+    #         return web.Response(
+    #             status=500,
+    #             reason="Error in VM execution",
+    #             body=result["traceback"],
+    #             content_type="text/plain",
+    #             headers={'X-Accel-Redirect': 'firecracker/NOTICE'},
+    #         )
+    #
+    #     headers = {key.decode(): value.decode()
+    #                for key, value in result['headers']['headers']}
+    #     headers['X-Accel-Redirect'] = 'firecracker/NOTICE'
+    #     headers['Plop'] = 'Lol'
+    #
+    #     return web.Response(
+    #         status=result['headers']['status'],
+    #         body=result["body"]["body"],
+    #         headers=headers,
+    #     )
+    # except UnpackValueError as error:
+    #     logger.exception(error)
+    #     return web.Response(status=502, reason="Invalid response from VM")
+    # try:
+    #     pass
     finally:
         if settings.REUSE_TIMEOUT > 0:
             pool.keep_in_cache(vm, message_content, timeout=settings.REUSE_TIMEOUT)

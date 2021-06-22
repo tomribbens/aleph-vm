@@ -3,8 +3,9 @@ import logging
 from typing import Dict, Optional
 
 from aleph_message.models import ProgramContent
-from vm_supervisor.conf import settings
-from vm_supervisor.vm.firecracker_microvm import (
+from .conf import settings
+from .proxy.caddy import CaddyProxy
+from .vm.firecracker_microvm import (
     AlephFirecrackerVM,
     AlephFirecrackerResources,
 )
@@ -54,6 +55,16 @@ class VmPool:
             await vm.start()
             await vm.configure()
             await vm.start_guest_api()
+
+            logger.debug("Registering")
+            asyncio.create_task(CaddyProxy().register_uid(uid=vm.vm_hash, upstream=f"{vm.fvm.guest_ip}:8000"))
+            # try:
+            #     await CaddyProxy().register_uid(uid=vm.vm_hash, upstream=f"{vm.fvm.guest_ip}:8000")
+            # except Exception:
+            #     logger.exception("Failed to register")
+            #     raise
+            logger.debug("Registered")
+
             return vm
         except Exception:
             await vm.teardown()

@@ -1,6 +1,8 @@
 #!/usr/bin/python3 -OO
 
 import logging
+from multiprocessing import Process
+
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(relativeCreated)4f |V %(levelname)s | %(message)s",
@@ -60,6 +62,7 @@ class ConfigurationPayload:
     interface: Interface
     vm_hash: str
     volumes: List[Volume]
+    log_level: str
 
 
 @dataclass
@@ -68,9 +71,9 @@ class RunCodePayload:
 
 
 # Open a socket to receive instructions from the host
-s = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
-s.bind((socket.VMADDR_CID_ANY, 52))
-s.listen()
+server_socket = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+server_socket.bind((socket.VMADDR_CID_ANY, 52))
+server_socket.listen()
 
 # Send the host that we are ready
 s0 = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
@@ -283,63 +286,79 @@ async def run_executable_http(scope: dict) -> Tuple[Dict, Dict, str, Optional[by
     return headers, body, output, output_data
 
 
-def process_instruction(instruction: bytes, interface: Interface, application) -> Iterator[bytes]:
-    if instruction == b"halt":
+def process_command(command: bytes, process: Process) -> Iterator[bytes]:
+    if command == b"halt":
+        logger.debug("Shutdown")
         system("sync")
         yield b"STOP\n"
         sys.exit()
-    elif instruction.startswith(b"!"):
+
+    elif command.startswith(b"!"):
+        logger.debug("Executing shell command")
         # Execute shell commands in the form `!ls /`
-        msg = instruction[1:].decode()
+        msg = command[1:].decode()
         try:
             process_output = subprocess.check_output(msg, stderr=subprocess.STDOUT, shell=True)
             yield process_output
         except subprocess.CalledProcessError as error:
             yield str(error).encode() + b"\n" + error.output
+
     else:
-        # Python
+        # Python'
         logger.debug("msgpack.loads (")
-        msg_ = msgpack.loads(instruction, raw=False)
+        msg_ = msgpack.loads(command, raw=False)
         logger.debug("msgpack.loads )")
         payload = RunCodePayload(**msg_)
 
-        output: Optional[str] = None
-        try:
-            headers: Dict
-            body: Dict
-            output_data: Optional[bytes]
+        # output: Optional[str] = None
+        # try:
+        #     headers: Dict
+        #     body: Dict
+        #     output_data: Optional[bytes]
+        #
+        #     if interface == Interface.asgi:
+        #         run_asgi_app()
+        #
+        #         headers, body, output, output_data = asyncio.get_event_loop().run_until_complete(
+        #             run_python_code_http(application=application, scope=payload.scope)
+        #         )
+        #     elif interface == Interface.executable:
+        #         headers, body, output, output_data = asyncio.get_event_loop().run_until_complete(
+        #             run_executable_http(scope=payload.scope)
+        #         )
+        #     else:
+        #         raise ValueError("Unknown interface. This should never happen")
+        #
+        #     result = {
+        #         "headers": headers,
+        #         "body": body,
+        #         "output": output,
+        #         "output_data": output_data,
+        #     }
+        #     yield msgpack.dumps(result, use_bin_type=True)
+        # except Exception as error:
+        yield msgpack.dumps({
+            "error": "ERROR",
+            "traceback": str(traceback.format_exc()),
+            "output": b"output"
+        })
 
-            if interface == Interface.asgi:
-                headers, body, output, output_data = asyncio.get_event_loop().run_until_complete(
-                    run_python_code_http(application=application, scope=payload.scope)
-                )
-            elif interface == Interface.executable:
-                headers, body, output, output_data = asyncio.get_event_loop().run_until_complete(
-                    run_executable_http(scope=payload.scope)
-                )
-            else:
-                raise ValueError("Unknown interface. This should never happen")
 
-            result = {
-                "headers": headers,
-                "body": body,
-                "output": output,
-                "output_data": output_data,
-            }
-            yield msgpack.dumps(result, use_bin_type=True)
-        except Exception as error:
-            yield msgpack.dumps({
-                "error": str(error),
-                "traceback": str(traceback.format_exc()),
-                "output": output
-            })
+def run_asgi(config: ConfigurationPayload):
+    import uvicorn
+    setup_code_asgi(code=config.code, encoding=config.encoding, entrypoint=config.entrypoint)
+    uvicorn.run(app=config.entrypoint, host="0.0.0.0", port=8000, log_level=config.log_level.lower())
 
 
-def receive_data_length(client) -> int:
-    """Receive the length of the data to follow."""
+def receive_data_length(socket_client: socket.socket) -> int:
+    """Receive the length of the data to follow.
+
+    '''12
+    ABCDEFGHIJKL'''
+    """
     buffer = b""
     for _ in range(9):
-        byte = client.recv(1)
+        byte = socket_client.recv(1)
         if byte == b"\n":
             break
         else:
@@ -347,32 +366,45 @@ def receive_data_length(client) -> int:
     return int(buffer)
 
 
-def main():
-    client, addr = s.accept()
-
-    logger.debug("Receiving setup...")
-    length = receive_data_length(client)
+def receive_config(host_socket: socket.socket) -> ConfigurationPayload:
+    logger.debug("Receiving config...")
+    length: int = receive_data_length(host_socket)
     data = b""
     while len(data) < length:
-        data += client.recv(1024*1024)
+        data += host_socket.recv(1024 * 1024)
 
+    logger.debug("Loading config...")
     msg_ = msgpack.loads(data, raw=False)
     msg_['volumes'] = [Volume(**volume_dict)
                        for volume_dict in msg_.get('volumes')]
-    config = ConfigurationPayload(**msg_)
+    return ConfigurationPayload(**msg_)
 
+
+def main():
+    host, _ = server_socket.accept()
+    config = receive_config(host_socket=host)
+
+    logger.debug("Setup started...")
     setup_hostname(config.vm_hash)
     setup_volumes(config.volumes)
     setup_network(config.ip, config.route, config.dns_servers)
     setup_input_data(config.input_data)
     logger.debug("Setup finished")
 
+    process: Union[Process, subprocess.Popen]
     try:
-        app: Union[ASGIApplication, subprocess.Popen] = setup_code(
-            config.code, config.encoding, config.entrypoint, config.interface)
-        client.send(msgpack.dumps({"success": True}))
+        if config.interface == Interface.asgi:
+            process = Process(target=run_asgi, args=(config,))
+            process.start()
+        elif config.interface == Interface.executable:
+            # process = run_executable(config)
+            pass
+        else:
+            raise ValueError(f"Unknown interface '{config.interface}'. This should never happen.")
+        host.send(msgpack.dumps({"success": True}))
+
     except Exception as error:
-        client.send(msgpack.dumps({
+        host.send(msgpack.dumps({
             "success": False,
             "error": str(error),
             "traceback": str(traceback.format_exc()),
@@ -380,22 +412,21 @@ def main():
         logger.exception("Program could not be started")
         raise
 
+    # Execute commands from the host
     while True:
-        client, addr = s.accept()
-        data = client.recv(1000_1000)  # Max 1 Mo
-        logger.debug("CID: {} port:{} data: {}".format(addr[0], addr[1], len(data)))
+        host, _ = server_socket.accept()
+        command = host.recv(1_000_1000)  # Max 1 Mo
 
-        logger.debug("Init received msg")
+        logger.debug("Command received...")
         if logger.level <= logging.DEBUG:
-            data_to_print = f"{data[:500]}..." if len(data) > 500 else data
+            data_to_print = f"{command[:500]}..." if len(command) > 500 else command
             logger.debug(f"<<<\n\n{data_to_print}\n\n>>>")
 
-        for result in process_instruction(instruction=data, interface=config.interface,
-                                          application=app):
-            client.send(result)
+        for result in process_command(command=command, process=process):
+            host.send(result)
 
-        logger.debug("...DONE")
-        client.close()
+        logger.debug("Command processed")
+        host.close()
 
 
 if __name__ == '__main__':

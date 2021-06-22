@@ -69,6 +69,7 @@ class ConfigurationPayload:
     interface: Interface
     vm_hash: str
     volumes: List[Volume]
+    log_level: str
 
     def as_msgpack(self) -> bytes:
         return msgpack.dumps(dataclasses.asdict(self), use_bin_type=True)
@@ -290,6 +291,7 @@ class AlephFirecrackerVM:
             interface=interface,
             vm_hash=self.vm_hash,
             volumes=volumes,
+            log_level=logging.getLevelName(logging.DEBUG),
         )
         payload = config.as_msgpack()
         length = f"{len(payload)}\n".encode()
