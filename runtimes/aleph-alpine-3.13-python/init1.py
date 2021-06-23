@@ -142,14 +142,10 @@ def setup_volumes(volumes: List[Volume]):
     system("mount")
 
 
-def setup_code_asgi(code: bytes, encoding: Encoding, entrypoint: str) -> ASGIApplication:
+def setup_code_asgi(code: bytes, encoding: Encoding, entrypoint: str):
     logger.debug("Extracting code")
     if encoding == Encoding.squashfs:
         sys.path.append("/opt/code")
-        module_name, app_name = entrypoint.split(":", 1)
-        logger.debug("import module")
-        module = __import__(module_name)
-        app: ASGIApplication = getattr(module, app_name)
     elif encoding == Encoding.zip:
         # Unzip in /opt and import the entrypoint from there
         if not os.path.exists("/opt/archive.zip"):
@@ -157,21 +153,15 @@ def setup_code_asgi(code: bytes, encoding: Encoding, entrypoint: str) -> ASGIApp
             logger.debug("Run unzip")
             os.system("unzip -q /opt/archive.zip -d /opt")
         sys.path.append("/opt")
-        module_name, app_name = entrypoint.split(":", 1)
-        logger.debug("import module")
-        module = __import__(module_name)
-        app: ASGIApplication = getattr(module, app_name)
     elif encoding == Encoding.plain:
         # Execute the code and extract the entrypoint
-        locals: Dict[str, Any] = {}
-        exec(code, globals(), locals)
-        app: ASGIApplication = locals[entrypoint]
+        path = f"/opt/{entrypoint.split(':', 1)[0]}.py"
+        open(path, "wb").write(code)
     else:
         raise ValueError(f"Unknown encoding '{encoding}'")
-    return app
 
 
-def setup_code_executable(code: bytes, encoding: Encoding, entrypoint: str) -> subprocess.Popen:
+def setup_code_executable(code: bytes, encoding: Encoding, entrypoint: str) -> str:
     logger.debug("Extracting code")
     if encoding == Encoding.squashfs:
         path = f"/opt/code/{entrypoint}"
@@ -189,14 +179,13 @@ def setup_code_executable(code: bytes, encoding: Encoding, entrypoint: str) -> s
             raise FileNotFoundError(f"No such file: {path}")
         os.system(f"chmod +x {path}")
     elif encoding == Encoding.plain:
-        path = f"/opt/executable {entrypoint}"
+        path = f"/opt/{entrypoint}"
         open(path, "wb").write(code)
         os.system(f"chmod +x {path}")
     else:
         raise ValueError(f"Unknown encoding '{encoding}'. This should never happen.")
 
-    process = subprocess.Popen(path)
-    return process
+    return path
 
 
 def setup_code(code: bytes, encoding: Encoding, entrypoint: str, interface: Interface
@@ -394,13 +383,34 @@ def main():
     process: Union[Process, subprocess.Popen]
     try:
         if config.interface == Interface.asgi:
-            process = Process(target=run_asgi, args=(config,))
-            process.start()
+            setup_code_asgi(code=config.code, encoding=config.encoding,
+                            entrypoint=config.entrypoint)
+            command = ["/usr/local/bin/uvicorn", config.entrypoint, "--host", "0.0.0.0", "--port", "8000",
+                       "--log-level", config.log_level.lower()]
+
+            print(os.environ)
+
         elif config.interface == Interface.executable:
-            # process = run_executable(config)
-            pass
+            path = setup_code_executable(
+                code=config.code,
+                encoding=config.encoding,
+                entrypoint=config.entrypoint,
+            )
+            command = [path]
         else:
             raise ValueError(f"Unknown interface '{config.interface}'. This should never happen.")
+
+        process = subprocess.Popen(
+            command,
+            # stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            env={"PYTHONPATH": "/opt/code",
+                 "ALEPH_API_HOST": "http://localhost",
+                 "ALEPH_API_UNIX_SOCKET": "/tmp/socat-socket",
+                 "ALEPH_REMOTE_CRYPTO_HOST": "http://localhost",
+                 "ALEPH_REMOTE_CRYPTO_UNIX_SOCKET": "/tmp/socat-socket",
+                 "ALEPH_ADDRESS_TO_USE": config.vm_hash,
+                 })
+
         host.send(msgpack.dumps({"success": True}))
 
     except Exception as error:

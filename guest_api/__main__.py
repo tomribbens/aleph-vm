@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 ALEPH_API_SERVER = "https://api2.aleph.im"
 ALEPH_VM_CONNECTOR = "http://localhost:8000"
+ALEPH_VM_SUPERVISOR = "http://localhost:8080"
 CACHE_EXPIRES_AFTER = 7 * 24 * 3600  # Seconds
 
 
@@ -93,6 +94,18 @@ async def sign(request: web.Request):
                                 content_type=response.content_type)
 
 
+async def extend(request: web.Request):
+    vm_hash: str = request.app.meta_vm_hash
+    url = f"{ALEPH_VM_SUPERVISOR}/internal/extend/{vm_hash}"
+
+    async with aiohttp.ClientSession() as session:
+        async with session.post(url=url) as response:
+            data = await response.read()
+            return web.Response(body=data,
+                                status=response.status,
+                                content_type=response.content_type)
+
+
 async def get_from_cache(request: web.Request):
     prefix: str = request.app.meta_vm_hash
     key: str = request.match_info.get('key')
@@ -152,6 +165,7 @@ def run_guest_api(unix_socket_path, vm_hash: Optional[str] = None):
 
     app.router.add_route(method='GET', path='/properties', handler=properties)
     app.router.add_route(method='POST', path='/sign', handler=sign)
+    app.router.add_route(method='POST', path='/extend', handler=extend)
 
     app.router.add_route(method='GET', path='/cache/', handler=list_keys_from_cache)
     app.router.add_route(method='GET', path='/cache/{key:.*}', handler=get_from_cache)

@@ -4,7 +4,9 @@
 
 **/*.bin
 **/*.ext4
+**/*.squashfs
 **/*.zip
 **/*.pyz
 **/data.tgz
 /pydantic/
+/runtimes/*/rootfs/

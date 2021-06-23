@@ -18,7 +18,7 @@ from firecracker.config import BootSource, Drive, MachineConfig, FirecrackerConf
 from firecracker.microvm import MicroVM, setfacl
 from guest_api.__main__ import run_guest_api
 from ..conf import settings
-from ..models import FilePath
+from ..models import FilePath, VmHash
 from ..proxy.caddy import CaddyProxy
 from ..storage import get_code_path, get_runtime_path, get_data_path, get_volume_path
 
@@ -165,7 +165,7 @@ class VmSetupError(Exception):
 
 class AlephFirecrackerVM:
     vm_id: int
-    vm_hash: str
+    vm_hash: VmHash
     resources: AlephFirecrackerResources
     enable_console: bool
     enable_networking: bool
@@ -176,7 +176,7 @@ class AlephFirecrackerVM:
     def __init__(
         self,
         vm_id: int,
-        vm_hash: str,
+        vm_hash: VmHash,
         resources: AlephFirecrackerResources,
         enable_networking: bool = False,
         enable_console: Optional[bool] = None,

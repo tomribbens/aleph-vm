@@ -6,23 +6,23 @@ At it's core, it is currently an asynchronous HTTP server using aiohttp, but thi
 evolve in the future.
 """
 import asyncio
-import binascii
 import logging
 from base64 import b32decode, b16encode
-from typing import Awaitable, Dict, Any
 
 import aiodns
 import aiohttp
-import msgpack
+import binascii
 from aiohttp import web, ClientResponseError, ClientConnectorError
 from aiohttp.web_exceptions import HTTPNotFound, HTTPServiceUnavailable, HTTPBadRequest, \
     HTTPInternalServerError
-from msgpack import UnpackValueError
+from typing import Awaitable, Dict, Any
 
 from aleph_message.models import ProgramMessage, ProgramContent
 from firecracker.microvm import MicroVMFailedInit
 from .conf import settings
+from .models import VmHash
 from .pool import VmPool
+from .proxy.caddy import CaddyProxy
 from .storage import get_message, get_latest_amend
 from .vm.firecracker_microvm import ResourceDownloadError, VmSetupError
 
@@ -33,6 +33,13 @@ pool = VmPool()
 async def index(request: web.Request):
     assert request.method == "GET"
     return web.Response(text="Server: Aleph VM Supervisor")
+
+
+async def extend_vm_timeout(request: web.Request):
+    # TODO: Check that caller is localhost
+    vm_hash = request.match_info["vm_hash"]
+    pool.extend(vm_hash, settings.REUSE_TIMEOUT)
+    return web.Response(text="OK")
 
 
 async def try_get_message(ref: str) -> ProgramMessage:
@@ -89,23 +96,23 @@ async def run_code(message_ref: str, path: str, request: web.Request) -> web.Res
     """
 
     message: ProgramMessage = await try_get_message(message_ref)
-    message_content: ProgramContent = message.content
+    program: ProgramContent = message.content
 
     # Load amends
     await asyncio.gather(
-        update_with_latest_ref(message_content.runtime),
-        update_with_latest_ref(message_content.code),
-        update_with_latest_ref(message_content.data),
+        update_with_latest_ref(program.runtime),
+        update_with_latest_ref(program.code),
+        update_with_latest_ref(program.data),
         *(
             update_with_latest_ref(volume)
-            for volume in (message_content.volumes or [])
+            for volume in (program.volumes or [])
         ),
     )
 
     # TODO: Cache message content after amends
 
     try:
-        vm = await pool.get_a_vm(message_content, vm_hash=message.item_hash)
+        vm = await pool.get_or_create(program, vm_hash=VmHash(message.item_hash))
     except ResourceDownloadError as error:
         logger.exception(error)
         raise HTTPBadRequest(reason="Code, runtime or data not available")
@@ -116,68 +123,40 @@ async def run_code(message_ref: str, path: str, request: web.Request) -> web.Res
         logger.exception(error)
         raise HTTPInternalServerError(reason="Error during runtime initialisation")
 
+    upstream = f"{vm.fvm.guest_ip}:8000"
+
+    # Wait for the service in the VM to be available
     for i in range(50):
         try:
             logger.debug(f"Trying... {i}")
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(0.1)) as session:
-                async with session.get(f"http://{vm.fvm.guest_ip}:8000") as response:
-                    response.raise_for_status()
+                async with session.get(f"http://{upstream}") as response:
+                    # response.raise_for_status()
                     break
         except:
             await asyncio.sleep(0.1)
             continue
 
-    try:
-        return web.Response(
-            headers={'X-Accel-Redirect': f"{vm.fvm.guest_ip}:8000"}
-        )
+    # FIXME: This works but the call blocks for an unknown reason
+    asyncio.get_event_loop().create_task(
+        CaddyProxy().register_uid(vm_hash=vm.vm_hash, upstream=upstream)
+    )
 
-    # logger.debug(f"Using vm={vm.vm_id}")
-    #
-    # scope: Dict = await build_asgi_scope(path, request)
-    #
-    # try:
-    #     result_raw: bytes = await vm.run_code(scope=scope)
-    # except UnpackValueError as error:
-    #     logger.exception(error)
-    #     return web.Response(status=502, reason="Invalid response from VM")
-    #
-    # try:
-    #     result = msgpack.loads(result_raw, raw=False)
-    #     # TODO: Handle other content-types
-    #
-    #     logger.debug(f"Result from VM: <<<\n\n{str(result)[:1000]}\n\n>>>")
-    #
-    #     if "traceback" in result:
-    #         logger.warning(result["traceback"])
-    #         return web.Response(
-    #             status=500,
-    #             reason="Error in VM execution",
-    #             body=result["traceback"],
-    #             content_type="text/plain",
-    #             headers={'X-Accel-Redirect': 'firecracker/NOTICE'},
-    #         )
-    #
-    #     headers = {key.decode(): value.decode()
-    #                for key, value in result['headers']['headers']}
-    #     headers['X-Accel-Redirect'] = 'firecracker/NOTICE'
-    #     headers['Plop'] = 'Lol'
-    #
-    #     return web.Response(
-    #         status=result['headers']['status'],
-    #         body=result["body"]["body"],
-    #         headers=headers,
-    #     )
-    # except UnpackValueError as error:
-    #     logger.exception(error)
-    #     return web.Response(status=502, reason="Invalid response from VM")
-    # try:
-    #     pass
-    finally:
-        if settings.REUSE_TIMEOUT > 0:
-            pool.keep_in_cache(vm, message_content, timeout=settings.REUSE_TIMEOUT)
-        else:
-            await vm.teardown()
+    if settings.REUSE_TIMEOUT > 0:
+        logger.debug("Setting timeout on VM")
+        pool.keep_running(vm, program, timeout=settings.REUSE_TIMEOUT)
+    else:
+        logger.debug("VM Teardown")
+        await vm.teardown()
+
+    logger.debug(f'XXXXZ {pool._started_vms_cache}')
+
+    await asyncio.sleep(1)
+
+    logger.debug("X-Accel-Redirect")
+    return web.Response(
+        headers={'X-Accel-Redirect': f"{vm.fvm.guest_ip}:8000"}
+    )
 
 
 def run_code_from_path(request: web.Request) -> Awaitable[web.Response]:
@@ -239,6 +218,7 @@ async def run_code_from_hostname(request: web.Request) -> web.Response:
 
 app = web.Application()
 
+app.add_routes([web.post("/internal/extend/{vm_hash:.*}", extend_vm_timeout)])
 app.add_routes([web.route("*", "/vm/{ref}{suffix:.*}", run_code_from_path)])
 app.add_routes([web.route("*", "/{suffix:.*}", run_code_from_hostname)])
 

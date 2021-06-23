@@ -3,6 +3,7 @@ from base64 import b32encode, b16decode
 import aiohttp
 
 from .abstract import ProxyConfigurator
+from ..models import VmHash
 
 DOMAIN = "vm.demo.okeso.fr"
 CADDY_API_URL = "http://127.0.0.1:2019/"
@@ -59,10 +60,10 @@ class CaddyProxy(ProxyConfigurator):
     """Caddy Server configurator.
     """
 
-    async def register_uid(self, uid: str, upstream: str = "127.0.0.1:8080"):
-        uid_base32 = b16_to_b32(uid).decode()
+    async def register_uid(self, vm_hash: VmHash, upstream: str = "127.0.0.1:8080"):
+        uid_base32 = b16_to_b32(vm_hash).decode()
         host = f"{uid_base32}.{DOMAIN}"
-        config = caddy_new_route(host=host, upstream=upstream, uid=uid)
+        config = caddy_new_route(host=host, upstream=upstream, uid=vm_hash)
         url = CADDY_API_URL + "config/apps/http/servers/srv0/routes/0"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(10)) as session:
@@ -70,7 +71,7 @@ class CaddyProxy(ProxyConfigurator):
                 response.raise_for_status()
                 print("OK")
 
-    async def remove_uid(self, uid: str):
+    async def remove_uid(self, uid: VmHash):
         url = CADDY_API_URL + f"/id/subroute-{uid}"
 
         async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(3)) as session:

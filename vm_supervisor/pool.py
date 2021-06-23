@@ -1,10 +1,12 @@
 import asyncio
 import logging
+
+from dataclasses import dataclass
 from typing import Dict, Optional
 
 from aleph_message.models import ProgramContent
 from .conf import settings
-from .proxy.caddy import CaddyProxy
+from .models import VmHash
 from .vm.firecracker_microvm import (
     AlephFirecrackerVM,
     AlephFirecrackerResources,
@@ -13,13 +15,11 @@ from .vm.firecracker_microvm import (
 logger = logging.getLogger(__name__)
 
 
+@dataclass
 class StartedVM:
     vm: AlephFirecrackerVM
-    timeout_task: Optional[asyncio.Task]
-
-    def __init__(self, vm: AlephFirecrackerVM):
-        self.vm = vm
-        self.timeout_task = None
+    program: ProgramContent
+    timeout_task: Optional[asyncio.Task] = None
 
 
 class VmPool:
@@ -32,23 +32,23 @@ class VmPool:
     """
 
     counter: int  # Used to provide distinct ids to network interfaces
-    started_vms_cache: Dict[ProgramContent, StartedVM]
+    _started_vms_cache: Dict[VmHash, StartedVM]
 
     def __init__(self):
         self.counter = settings.START_ID_INDEX
-        self.started_vms_cache = {}
+        self._started_vms_cache = {}
 
-    async def create_a_vm(self, message_content: ProgramContent, vm_hash: str) -> AlephFirecrackerVM:
+    async def create_a_vm(self, program: ProgramContent, vm_hash: VmHash) -> AlephFirecrackerVM:
         """Create a new Aleph Firecracker VM from an Aleph function message."""
-        vm_resources = AlephFirecrackerResources(message_content)
+        vm_resources = AlephFirecrackerResources(program)
         await vm_resources.download_all()
         self.counter += 1
         vm = AlephFirecrackerVM(
             vm_id=self.counter,
             vm_hash=vm_hash,
             resources=vm_resources,
-            enable_networking=message_content.environment.internet,
-            hardware_resources=message_content.resources,
+            enable_networking=program.environment.internet,
+            hardware_resources=program.resources,
         )
         try:
             await vm.setup()
@@ -56,50 +56,49 @@ class VmPool:
             await vm.configure()
             await vm.start_guest_api()
 
-            logger.debug("Registering")
-            asyncio.create_task(CaddyProxy().register_uid(uid=vm.vm_hash, upstream=f"{vm.fvm.guest_ip}:8000"))
-            # try:
-            #     await CaddyProxy().register_uid(uid=vm.vm_hash, upstream=f"{vm.fvm.guest_ip}:8000")
-            # except Exception:
-            #     logger.exception("Failed to register")
-            #     raise
-            logger.debug("Registered")
-
             return vm
         except Exception:
             await vm.teardown()
             raise
 
-
-    async def get_a_vm(self, message: ProgramContent, vm_hash: str) -> AlephFirecrackerVM:
-        """Provision a VM in the pool, then return the first VM from the pool."""
-        try:
-            started_vm = self.started_vms_cache.pop(message)
-            started_vm.timeout_task.cancel()
+    async def get_or_create(self, program: ProgramContent, vm_hash: VmHash) -> AlephFirecrackerVM:
+        """Returns a VM. Creates it if not already running."""
+        started_vm = self._started_vms_cache.get(vm_hash)
+        # if started_vm and started_vm.program == ProgramContent:
+        if started_vm:
             return started_vm.vm
-        except KeyError:
-            return await self.create_a_vm(message_content=message, vm_hash=vm_hash)
+        else:
+            return await self.create_a_vm(program=program, vm_hash=vm_hash)
 
-    def keep_in_cache(
-        self, vm: AlephFirecrackerVM, message: ProgramContent, timeout: float = 1.0
+    def keep_running(
+        self, vm: AlephFirecrackerVM, program: ProgramContent, timeout: float = 1.0
     ) -> None:
-        """Keep a VM running for `timeout` seconds in case another query comes by."""
+        """Keep a VM running for `timeout` seconds."""
 
-        if message in self.started_vms_cache:
-            logger.warning("VM already in keep_in_cache, not caching")
+        if vm.vm_hash in self._started_vms_cache:
+            logger.warning("VM already in keep_running, not caching")
+            self.extend(vm.vm_hash, timeout)
             return
 
-        started_vm = StartedVM(vm=vm)
-        self.started_vms_cache[message] = started_vm
+        started_vm = StartedVM(vm=vm, program=program)
+        self._started_vms_cache[vm.vm_hash] = started_vm
 
         loop = asyncio.get_event_loop()
-        started_vm.timeout_task = loop.create_task(self.expire(vm, message, timeout))
+        started_vm.timeout_task = loop.create_task(self.expire(vm, timeout))
+
+    def extend(self, vm_hash: VmHash, timeout: float = 1.0) -> None:
+        print('VMS_CACHE', self._started_vms_cache)
+        logger.debug(f'VMS_CACHE: {self._started_vms_cache}')
+        started_vm = self._started_vms_cache[vm_hash]
+        started_vm.timeout_task.cancel()
+        loop = asyncio.get_event_loop()
+        started_vm.timeout_task = loop.create_task(self.expire(started_vm.vm, timeout))
 
     async def expire(
-        self, vm: AlephFirecrackerVM, message: ProgramContent, timeout: float
-    ):
+        self, vm: AlephFirecrackerVM, timeout: float
+    ) -> None:
         """Coroutine that will stop the VM after 'timeout' seconds."""
         await asyncio.sleep(timeout)
-        assert self.started_vms_cache[message].vm is vm
-        del self.started_vms_cache[message]
+        assert self._started_vms_cache[vm.vm_hash].vm is vm
+        del self._started_vms_cache[vm.vm_hash]
         await vm.teardown()

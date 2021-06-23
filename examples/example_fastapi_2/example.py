@@ -11,6 +11,7 @@ logger.debug("import aleph_client")
 from aleph_client.asynchronous import get_messages, create_post
 from aleph_client.chains.remote import RemoteAccount
 from aleph_client.vm.cache import VmCache
+from aleph_client.conf import settings
 
 logger.debug("import fastapi")
 from fastapi import FastAPI
@@ -21,10 +22,11 @@ cache = VmCache()
 
 
 @app.get("/")
-async def index():
+async def index_page():
     return {
         "Example": "example_fastapi_2",
         "endpoints": ["/messages", "/internet", "/post_a_message"],
+        "extension": "",
         "files_in_volumes": {
             "/opt/venv": list(listdir("/opt/venv"))
         },
@@ -34,6 +36,11 @@ async def index():
 @app.get("/messages")
 async def read_aleph_messages():
     """Read data from Aleph using the Aleph Client library."""
+    connector = aiohttp.UnixConnector(path=settings.API_UNIX_SOCKET)
+    async with aiohttp.ClientSession(connector=connector) as session:
+        async with session.post(f"{settings.API_HOST}/extend") as response:
+            response.raise_for_status()
+
     data = await get_messages(
         hashes=["f246f873c3e0f637a15c566e7a465d2ecbb83eaa024d54ccb8fb566b549a929e"]
     )
