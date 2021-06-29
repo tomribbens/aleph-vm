@@ -388,7 +388,7 @@ def main():
             command = ["/usr/local/bin/uvicorn", config.entrypoint, "--host", "0.0.0.0", "--port", "8000",
                        "--log-level", config.log_level.lower()]
 
-            print(os.environ)
+            logger.debug(f"Environ = {os.environ}")
 
         elif config.interface == Interface.executable:
             path = setup_code_executable(
@@ -400,16 +400,12 @@ def main():
         else:
             raise ValueError(f"Unknown interface '{config.interface}'. This should never happen.")
 
+        environ = {"PYTHONPATH": "/opt/code", **os.environ}
         process = subprocess.Popen(
             command,
             # stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-            env={"PYTHONPATH": "/opt/code",
-                 "ALEPH_API_HOST": "http://localhost",
-                 "ALEPH_API_UNIX_SOCKET": "/tmp/socat-socket",
-                 "ALEPH_REMOTE_CRYPTO_HOST": "http://localhost",
-                 "ALEPH_REMOTE_CRYPTO_UNIX_SOCKET": "/tmp/socat-socket",
-                 "ALEPH_ADDRESS_TO_USE": config.vm_hash,
-                 })
+            env=environ,
+        )
 
         host.send(msgpack.dumps({"success": True}))
 

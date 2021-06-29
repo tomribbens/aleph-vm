@@ -19,7 +19,6 @@ from firecracker.microvm import MicroVM, setfacl
 from guest_api.__main__ import run_guest_api
 from ..conf import settings
 from ..models import FilePath, VmHash
-from ..proxy.caddy import CaddyProxy
 from ..storage import get_code_path, get_runtime_path, get_data_path, get_volume_path
 
 logger = logging.getLogger(__name__)
@@ -323,7 +322,6 @@ class AlephFirecrackerVM:
             self.guest_api_process.terminate()
 
     async def teardown(self):
-        await CaddyProxy().remove_uid(uid=self.vm_hash)
         if self.fvm:
             await self.fvm.teardown()
         await self.stop_guest_api()

@@ -60,7 +60,7 @@ def systemd_resolved_dns_servers(interface):
 class Settings(BaseSettings):
     START_ID_INDEX: int = 4
     PREALLOC_VM_COUNT: int = 0
-    REUSE_TIMEOUT: float = 10
+    REUSE_TIMEOUT: float = 60
     NETWORK_INTERFACE: str = "eth0"
     DNS_RESOLUTION: Optional[DnsResolver] = DnsResolver.resolv_conf
     DNS_NAMESERVERS: Optional[List[str]] = None

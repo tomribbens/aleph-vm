@@ -61,6 +61,9 @@ class VmPool:
             await vm.teardown()
             raise
 
+    async def get(self, vm_hash: VmHash) -> Optional[AlephFirecrackerVM]:
+        return self._started_vms_cache.get(vm_hash)
+
     async def get_or_create(self, program: ProgramContent, vm_hash: VmHash) -> AlephFirecrackerVM:
         """Returns a VM. Creates it if not already running."""
         started_vm = self._started_vms_cache.get(vm_hash)
@@ -87,12 +90,11 @@ class VmPool:
         started_vm.timeout_task = loop.create_task(self.expire(vm, timeout))
 
     def extend(self, vm_hash: VmHash, timeout: float = 1.0) -> None:
-        print('VMS_CACHE', self._started_vms_cache)
-        logger.debug(f'VMS_CACHE: {self._started_vms_cache}')
         started_vm = self._started_vms_cache[vm_hash]
-        started_vm.timeout_task.cancel()
         loop = asyncio.get_event_loop()
-        started_vm.timeout_task = loop.create_task(self.expire(started_vm.vm, timeout))
+        new_timeout_task = loop.create_task(self.expire(started_vm.vm, timeout))
+        started_vm.timeout_task.cancel()
+        started_vm.timeout_task = new_timeout_task
 
     async def expire(
         self, vm: AlephFirecrackerVM, timeout: float

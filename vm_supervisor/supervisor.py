@@ -22,9 +22,8 @@ from firecracker.microvm import MicroVMFailedInit
 from .conf import settings
 from .models import VmHash
 from .pool import VmPool
-from .proxy.caddy import CaddyProxy
 from .storage import get_message, get_latest_amend
-from .vm.firecracker_microvm import ResourceDownloadError, VmSetupError
+from .vm.firecracker_microvm import ResourceDownloadError, VmSetupError, AlephFirecrackerVM
 
 logger = logging.getLogger(__name__)
 pool = VmPool()
@@ -33,13 +32,6 @@ pool = VmPool()
 async def index(request: web.Request):
     assert request.method == "GET"
     return web.Response(text="Server: Aleph VM Supervisor")
-
-
-async def extend_vm_timeout(request: web.Request):
-    # TODO: Check that caller is localhost
-    vm_hash = request.match_info["vm_hash"]
-    pool.extend(vm_hash, settings.REUSE_TIMEOUT)
-    return web.Response(text="OK")
 
 
 async def try_get_message(ref: str) -> ProgramMessage:
@@ -90,10 +82,16 @@ async def build_asgi_scope(path: str, request: web.Request) -> Dict[str, Any]:
     }
 
 
-async def run_code(message_ref: str, path: str, request: web.Request) -> web.Response:
+async def run_code(message_ref: VmHash, path: str, request: web.Request) -> web.Response:
     """
     Execute the code corresponding to the 'code id' in the path.
     """
+
+    vm = await pool.get(message_ref)
+    if vm:
+        return web.Response(
+            headers={'X-Accel-Redirect': f"{vm.fvm.guest_ip}:8000"}
+        )
 
     message: ProgramMessage = await try_get_message(message_ref)
     program: ProgramContent = message.content
@@ -130,17 +128,12 @@ async def run_code(message_ref: str, path: str, request: web.Request) -> web.Res
         try:
             logger.debug(f"Trying... {i}")
             async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(0.1)) as session:
-                async with session.get(f"http://{upstream}") as response:
-                    # response.raise_for_status()
+                async with session.get(f"http://{upstream}"):
+                    # The server replied
                     break
         except:
             await asyncio.sleep(0.1)
             continue
-
-    # FIXME: This works but the call blocks for an unknown reason
-    asyncio.get_event_loop().create_task(
-        CaddyProxy().register_uid(vm_hash=vm.vm_hash, upstream=upstream)
-    )
 
     if settings.REUSE_TIMEOUT > 0:
         logger.debug("Setting timeout on VM")
@@ -148,10 +141,6 @@ async def run_code(message_ref: str, path: str, request: web.Request) -> web.Res
     else:
         logger.debug("VM Teardown")
         await vm.teardown()
-
-    logger.debug(f'XXXXZ {pool._started_vms_cache}')
-
-    await asyncio.sleep(1)
 
     logger.debug("X-Accel-Redirect")
     return web.Response(
@@ -168,7 +157,7 @@ def run_code_from_path(request: web.Request) -> Awaitable[web.Response]:
     path = request.match_info["suffix"]
     path = path if path.startswith("/") else f"/{path}"
 
-    message_ref: str = request.match_info["ref"]
+    message_ref: VmHash = request.match_info["ref"]
     return run_code(message_ref, path, request)
 
 
@@ -218,7 +207,6 @@ async def run_code_from_hostname(request: web.Request) -> web.Response:
 
 app = web.Application()
 
-app.add_routes([web.post("/internal/extend/{vm_hash:.*}", extend_vm_timeout)])
 app.add_routes([web.route("*", "/vm/{ref}{suffix:.*}", run_code_from_path)])
 app.add_routes([web.route("*", "/{suffix:.*}", run_code_from_hostname)])
 
