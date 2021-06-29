@@ -7,6 +7,7 @@ evolve in the future.
 """
 import asyncio
 import logging
+import time
 from base64 import b32decode, b16encode
 
 import aiodns
@@ -82,6 +83,23 @@ async def build_asgi_scope(path: str, request: web.Request) -> Dict[str, Any]:
     }
 
 
+async def wait_for_app_server(upstream: str) -> None:
+    # Wait for the service in the VM to be available
+    logger.debug("Waiting for app server...")
+    t0 = time.time()
+    for i in range(50):
+        try:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(0.1)) as session:
+                async with session.get(f"http://{upstream}"):
+                    # The server replied
+                    break
+        except:
+            await asyncio.sleep(0.01)
+            continue
+    dt = time.time() - t0
+    logger.debug(f"App server available after {dt:.3f} seconds")
+
+
 async def run_code(message_ref: VmHash, path: str, request: web.Request) -> web.Response:
     """
     Execute the code corresponding to the 'code id' in the path.
@@ -89,6 +107,7 @@ async def run_code(message_ref: VmHash, path: str, request: web.Request) -> web.
 
     vm = await pool.get(message_ref)
     if vm:
+        pool.extend(message_ref, timeout=settings.REUSE_TIMEOUT)
         return web.Response(
             headers={'X-Accel-Redirect': f"{vm.fvm.guest_ip}:8000"}
         )
@@ -122,18 +141,7 @@ async def run_code(message_ref: VmHash, path: str, request: web.Request) -> web.
         raise HTTPInternalServerError(reason="Error during runtime initialisation")
 
     upstream = f"{vm.fvm.guest_ip}:8000"
-
-    # Wait for the service in the VM to be available
-    for i in range(50):
-        try:
-            logger.debug(f"Trying... {i}")
-            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(0.1)) as session:
-                async with session.get(f"http://{upstream}"):
-                    # The server replied
-                    break
-        except:
-            await asyncio.sleep(0.1)
-            continue
+    await wait_for_app_server(upstream)
 
     if settings.REUSE_TIMEOUT > 0:
         logger.debug("Setting timeout on VM")
