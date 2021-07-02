@@ -1,6 +1,8 @@
 #!/usr/bin/python3 -OO
 
 import logging
+from signal import signal, SIGINT, SIGUSR1, SIGTERM
+
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(relativeCreated)4f |V %(levelname)s | %(message)s",
@@ -360,7 +362,17 @@ def receive_data_length(client) -> int:
     return int(buffer)
 
 
+def handle_sigint(signal_received, frame):
+    """Handle Ctrl-Alt-Del signal"""
+    print('SIGINT or CTRL-C detected. Exiting gracefully')
+    exit(0)
+
+
 def main():
+    signal(SIGUSR1, handle_sigint)
+    signal(SIGINT, handle_sigint)
+    signal(SIGTERM, handle_sigint)
+
     client, addr = s.accept()
 
     logger.debug("Receiving setup...")

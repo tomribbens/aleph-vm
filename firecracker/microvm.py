@@ -10,6 +10,8 @@ from pwd import getpwnam
 from tempfile import NamedTemporaryFile
 from typing import Optional, Tuple, List
 
+import aiohttp
+
 from .config import FirecrackerConfig
 from vm_supervisor.models import FilePath
 from .config import Drive
@@ -70,6 +72,7 @@ class MicroVM:
     config_file = None
     drives: List[Drive] = None
     init_timeout: float
+    shutdown_requested: bool = False
 
     @property
     def jailer_path(self):
@@ -340,8 +343,30 @@ class MicroVM:
             logger.warning("Never received signal from init")
             raise MicroVMFailedInit()
 
+    async def send_shutdown(self):
+        if self.shutdown_requested:
+            return
+
+        conn = aiohttp.UnixConnector(path=self.socket_path)
+        client_session = aiohttp.ClientSession(connector=conn,
+                                               timeout=aiohttp.ClientTimeout(5))
+
+        data = {
+            "action_type": "SendCtrlAltDel",
+        }
+
+        logger.debug(f"Sending shutdown to VM {self.vm_id}")
+        async with client_session as session:
+            response = await session.put("http://localhost/actions", json=data)
+            response.raise_for_status()
+        logger.debug(f"Shutdown received by VM {self.vm_id}")
+        self.shutdown_requested = True
+        await asyncio.sleep(1)
+
+
     async def stop(self):
         if self.proc:
+            logger.debug(f"Stopping VM {self.vm_id}")
             try:
                 self.proc.terminate()
                 self.proc.kill()
@@ -351,6 +376,8 @@ class MicroVM:
 
     async def teardown(self):
         """Stop the VM, cleanup network interface and remove data directory."""
+
+        await self.send_shutdown()
         await self.stop()
 
         if self.stdout_task:
