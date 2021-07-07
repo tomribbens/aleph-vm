@@ -25,6 +25,7 @@
     }
     footer {
         margin-top: 2em;
+        font-size: small;
     }
 </style>
 <body>
@@ -56,7 +57,13 @@
 {% endfor %}
 
 <footer>
-  <a href="{% url 'admin:index' %}">Admin panel</a>
+  <p>
+    <a href="{% url 'admin:index' %}">Admin panel</a>
+  </p>
+  <form action="{% url 'save-state' %}" method="post">
+    {% csrf_token %}
+    <input type="submit" value="Save on Aleph" />
+  </form>
 </footer>
 </body>
 </html>
