@@ -405,7 +405,7 @@ class AlephFirecrackerVM:
     async def run_code(
         self,
         scope: dict = None,
-    ):
+    ) -> bytes:
         logger.debug("running code")
         scope = scope or {}
         reader, writer = await asyncio.open_unix_connection(path=self.fvm.vsock_path)

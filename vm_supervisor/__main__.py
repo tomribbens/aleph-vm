@@ -137,7 +137,7 @@ async def benchmark(runs: int):
         "/environ",
         "/messages",
         "/internet",
-        "/post_a_message",
+        # "/post_a_message",
         "/cache/set/foo/bar",
         "/cache/get/foo",
         "/cache/keys",

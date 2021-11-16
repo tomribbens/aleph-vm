@@ -129,6 +129,11 @@ def setup_network(ip: Optional[str], route: Optional[str],
         for server in dns_servers:
             resolvconf_fd.write(f"nameserver {server}\n".encode())
 
+    system("ip a")
+    system("ip route")
+    system("cat /etc/resolv.conf")
+    system("ping -c 1 -W 2 aleph.im")
+
 
 def setup_input_data(input_data: bytes):
     logger.debug("Extracting data")
@@ -419,6 +424,7 @@ async def main():
 
     logger.debug("Receiving setup...")
     config = receive_config(client)
+    logger.debug(f"config = {config}")
     setup_system(config)
 
     try:

@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -53,8 +54,9 @@ async def environ() -> Dict[str, str]:
 @app.get("/messages")
 async def read_aleph_messages():
     """Read data from Aleph using the Aleph Client library."""
+    await asyncio.sleep(1)
     data = await get_messages(
-        hashes=["f246f873c3e0f637a15c566e7a465d2ecbb83eaa024d54ccb8fb566b549a929e"]
+        hashes=["f246f873c3e0f637a15c566e7a465d2ecbb83eaa024d54ccb8fb566b549a929e"],
     )
     return {"Messages": data}
 
@@ -62,6 +64,7 @@ async def read_aleph_messages():
 @app.get("/internet")
 async def read_internet():
     """Read data from the public Internet using aiohttp."""
+    await asyncio.sleep(1)
     async with aiohttp.ClientSession(connector=aiohttp.TCPConnector()) as session:
         async with session.get("https://aleph.im/") as resp:
             resp.raise_for_status()
@@ -98,28 +101,33 @@ async def post_a_message():
 @app.get("/cache/get/{key}")
 async def get_from_cache(key: str):
     """Get data in the VM cache"""
+    # await asyncio.sleep(1)
     return await cache.get(key)
 
 
 @app.get("/cache/set/{key}/{value}")
 async def store_in_cache(key: str, value: str):
     """Store data in the VM cache"""
+    await asyncio.sleep(1)
     return await cache.set(key, value)
 
 
 @app.get("/cache/remove/{key}")
 async def remove_from_cache(key: str):
     """Store data in the VM cache"""
+    # await asyncio.sleep(1)
     result = await cache.delete(key)
     return result == 1
 
 @app.get("/cache/keys")
 async def keys_from_cache(pattern: str = '*'):
     """List keys from the VM cache"""
+    await asyncio.sleep(1)
     return await cache.keys(pattern)
 
 @app.get("/state/increment")
 async def increment():
+    await asyncio.sleep(1)
     path = "/var/lib/example/storage.json"
     try:
         with open(path) as fd:
