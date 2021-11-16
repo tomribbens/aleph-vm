@@ -2,6 +2,7 @@
 
 set -euf
 
+<<<<<<< HEAD
 # Use Podman if installed, else use Docker
 if hash podman 2> /dev/null
 then

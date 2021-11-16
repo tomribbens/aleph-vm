@@ -13,6 +13,7 @@ from aiohttp import web
 from .conf import settings
 from .tasks import start_watch_for_messages_task, stop_watch_for_messages_task
 from .views import (
+    index,
     run_code_from_path,
     run_code_from_hostname,
     about_login,
@@ -27,6 +28,7 @@ app = web.Application()
 
 app.add_routes(
     [
+        web.get("/", index),
         web.get("/about/login", about_login),
         web.get("/about/executions", about_executions),
         web.get("/about/config", about_config),

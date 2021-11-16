@@ -23,7 +23,8 @@ apt-get install -y --no-install-recommends --no-install-suggests \
   python3-pip python3-cytoolz python3-pydantic \
   iproute2 unzip \
   nodejs npm \
-  build-essential python3-dev
+  build-essential python3-dev \
+  iputils-ping curl
 
 pip3 install fastapi django
 

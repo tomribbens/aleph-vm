@@ -15,4 +15,7 @@ $DOCKER_COMMAND run -ti --rm \
   -v "$(pwd)/examples/volumes/volume-venv.squashfs:/opt/aleph-vm/examples/volumes/volume-venv.squashfs:ro" \
   --device /dev/kvm \
   -p 4020:4020 \
-  alephim/vm-supervisor-dev
+  --privileged  \
+  aleph-vm-supervisor-dev \
+  bash
+#  python3 -m vm_supervisor -p -vv --system-logs --benchmark 1 --profile
