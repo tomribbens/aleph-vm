@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+import subprocess
 import sys
 import time
 from asyncio import coroutine
@@ -105,6 +106,11 @@ async def benchmark(runs: int):
     """
     ref = VmHash("cad11970efe9b7478300fd04d7cc91c646ca0a792b9cc718650f86e1ccfac73e")
 
+    if settings.BENCHMARK_START_REDIS:
+        redis_process = subprocess.Popen("redis-server")
+    else:
+        redis_process = None
+
     class FakeRequest:
         headers: Dict[str, str]
         raw_headers: List[Tuple[bytes, bytes]]
@@ -169,6 +175,9 @@ async def benchmark(runs: int):
     event = None
     result = await run_code_on_event(vm_hash=ref, event=event, pubsub=PubSub())
     print("Event result", result)
+
+    if redis_process:
+        redis_process.terminate()
 
 
 def main():

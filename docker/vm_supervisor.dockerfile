@@ -31,6 +31,8 @@ ENV ALEPH_VM_NETWORK_INTERFACE "tap0"
 ENV ALEPH_VM_USE_JAILER False
 # Use fake test data
 ENV ALEPH_VM_FAKE_DATA True
+# Start redis on demand during benchmarks
+ENV ALEPH_VM_BENCHMARK_START_REDIS True
 
 # Make it easy to enter this command from a shell script
 RUN echo "ssh root@172.0.5.2" >> /root/.bash_history
