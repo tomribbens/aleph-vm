@@ -1,10 +1,8 @@
 import asyncio
 import json
 import logging
-import os
 import subprocess
 import time
-from asyncio import coroutine
 from os.path import isfile
 from statistics import mean
 from typing import Dict, List, Tuple
@@ -204,6 +202,8 @@ async def test_benchmark(fake_request: FakeRequest, runtime, vm_pool, test_setti
 @pytest.mark.asyncio
 async def test_event(runtime, vm_pool, test_settings):
     ref = VmHash("cad11970efe9b7478300fd04d7cc91c646ca0a792b9cc718650f86e1ccfac73e")
+
+    await asyncio.sleep(1)
 
     event = None
     result = await run_code_on_event(vm_hash=ref, event=event, pubsub=PubSub())
