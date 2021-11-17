@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     FAKE_DATA_RUNTIME: FilePath = abspath(join(__file__, "../../runtimes/aleph-debian-11-python/rootfs.squashfs"))
     FAKE_DATA_VOLUME: Optional[FilePath] = abspath(join(__file__, "../../examples/volumes/volume-venv.squashfs"))
 
+    BENCHMARK_START_REDIS: bool = False
+
     CHECK_FASTAPI_VM_ID: str = "bbd7f6e2ce72104a334f22e4b29f0ebeb96af3179167521788bce80754f3c58a"
 
     def update(self, **kwargs):
